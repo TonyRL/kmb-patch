@@ -95,6 +95,22 @@ export class KMBPatch {
                 xmlMode: true
             });
 
+            let versionCode : number = parseInt($("manifest").attr("platformBuildVersionCode"), 10);
+            let versionName : string = $("manifest").attr("platformBuildVersionName");
+            if (versionCode == 30) {
+                // platformBuildVersionCode from AndroidManifest.xml is fixed to 30 since 2.0.3(193)
+                let apktoolYmlPath : string = this.tempDir + "/apktool.yml";
+                let apktoolYml : string = fs.readFileSync(apktoolYmlPath).toString();
+                let versionCodeMatch = apktoolYml.match(/versionCode: '(\d+)'/);
+                if (versionCodeMatch) {
+                    versionCode = parseInt(versionCodeMatch[1], 10);
+                }
+                let versionNameMatch = apktoolYml.match(/versionName: (.+)/);
+                if (versionNameMatch) {
+                    versionName = versionNameMatch[1];
+                }
+            }
+            this.outputAPK = `${this.outputAPK.split(".apk")[0]}-${$("manifest").attr("platformBuildVersionName")}.apk`;
             escapedOutputAPK = escapeShellArg(this.outputAPK);
 
             // Update MAP Key
@@ -199,6 +215,29 @@ export class KMBPatch {
                         updated = true;
                     }
 
+                    // Remove Builtin Ads for 1.7.9(157)
+                    if (versionCode <= 157 && line.includes("https://app.kmb.hk/app1933/index.php")) {
+                        console.log("Remove Builtin Ads in " + filename);
+
+                        // Keep finding `/mybus/manager/h` (JAVA: mybus.manager.h(...)), if found, add # at the beginning to comment it
+                        let k = j;
+                        let foundTheCall = false;
+
+                        while (k >= 0 && k < lines.length) {
+                            if (lines[k].includes("/mybus/manager/h")) {
+                                lines[k] = "#" + lines[k];
+                                foundTheCall = true;
+                                break;
+                            }
+                            k++;
+                        }
+
+                        if (!foundTheCall) {
+                            console.error("Failed to remove Builtin Ads in " + filename);
+                        } else {
+                            updated = true;
+                        }
+                    }
 
                 }
 
@@ -210,6 +249,24 @@ export class KMBPatch {
             // /smali/ folder
             path = this.tempDir + '/smali/**/*.smali';
             fileList = glob.sync(path);
+            let builtinAdsClass : string;
+            switch (true) {
+                case versionCode >= 180: // 1.9.1(180) ~ 2.0.5(196)
+                    builtinAdsClass = "m";
+                    break;
+                case versionCode <= 179: // 1.8.6(174) ~ 1.9.0(179)
+                    builtinAdsClass = "l";
+                    break;
+                case versionCode == 173: // 1.8.5(173)
+                    builtinAdsClass = "j";
+                    break;
+                case versionCode > 157 && versionCode <= 171: // 1.8.0(160) ~ 1.8.4(171)
+                    builtinAdsClass = "i";
+                    break;
+                default:
+                    builtinAdsClass = "m";
+                    break;
+            }
 
             for (let i = 0; i < fileList.length; i++) {
                 let updated = false;
@@ -229,7 +286,7 @@ export class KMBPatch {
                         let foundTheCall = false;
 
                         while (k >= 0 && k < lines.length) {
-                            if (lines[k].includes("/mybus/manager/m")) {
+                            if (lines[k].includes("/mybus/manager/" + builtinAdsClass)) {
                                 lines[k] = "#" + lines[k];
                                 foundTheCall = true;
                                 break;
